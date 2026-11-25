@@ -195,6 +195,27 @@ class TrackerTest {
     }
 
     @Test
+    void primulAutobuzPeCareIlPotiPrinde() {
+        pozitie(1, "A", 3500);   // ETA 100 s: ajunge înaintea ta (5 min de mers)
+        pozitie(2, "A", 1000);   // ETA 600 s
+        Rezultat r = t.evalueaza(true);
+
+        assertEquals("B1", r.vehicul());                // LED-ul urmărește tot cel mai apropiat (GRABESTE_TE)
+        assertEquals(600, t.etaPrimulPrins(), 1);       // dar primul prins e B2
+
+        t.seteazaMers(60);                              // te-ai apropiat de stație: îl prinzi și pe B1
+        t.evalueaza(true);
+        assertEquals(100, t.etaPrimulPrins(), 1);
+    }
+
+    @Test
+    void faraAutobuzPrinsEtaNull() {
+        pozitie(1, "A", 3900);   // ETA 20 s < 300 s de mers
+        t.evalueaza(true);
+        assertNull(t.etaPrimulPrins());
+    }
+
+    @Test
     void confirmatOpresteUrmarirea() {
         pozitie(1, "A", 3950);   // 50 m <= 80 m
         assertEquals(Stare.IN_STATIE, t.evalueaza(true).stare());

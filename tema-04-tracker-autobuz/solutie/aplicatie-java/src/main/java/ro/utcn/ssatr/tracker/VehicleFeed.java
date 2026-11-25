@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -21,7 +22,7 @@ import com.rabbitmq.client.RecoveryListener;
 /**
  * Pozițiile vehiculelor: din RabbitMQ (exchange-ul fanout cluj.vehicles, printr-o
  * coadă proprie temporară) sau, la replay, dintr-un fișier înregistrat.
- * Trimite mai departe doar pozițiile valide ale liniei alese.
+ * Trimite mai departe doar pozițiile valide ale liniilor alese.
  *
  * Fișierul de înregistrare are o linie JSON pe mesaj: {"recv_ms": ..., "raw": "<mesajul brut>"}.
  */
@@ -29,7 +30,7 @@ public final class VehicleFeed implements AutoCloseable {
 
     private static final String EXCHANGE = "cluj.vehicles";
 
-    private final int routeId;
+    private final Set<Integer> routeIds;
     private final Consumer<Vehicul> destinatie;
     private final AtomicBoolean conectat = new AtomicBoolean(false);
 
@@ -38,9 +39,12 @@ public final class VehicleFeed implements AutoCloseable {
     private BufferedWriter inregistrare;
     private Thread threadReplay;
 
-    /** destinatie e apelată pe threadul RabbitMQ / de replay: trebuie să fie rapidă (o coadă). */
-    public VehicleFeed(int routeId, Consumer<Vehicul> destinatie) {
-        this.routeId = routeId;
+    /**
+     * routeIds = liniile urmărite (una în modul clasic, mai multe în modul destinație).
+     * destinatie e apelată pe threadul RabbitMQ / de replay: trebuie să fie rapidă (o coadă).
+     */
+    public VehicleFeed(Set<Integer> routeIds, Consumer<Vehicul> destinatie) {
+        this.routeIds = Set.copyOf(routeIds);
         this.destinatie = destinatie;
     }
 
@@ -138,7 +142,7 @@ public final class VehicleFeed implements AutoCloseable {
             }
         }
         Vehicul v = Vehicul.parse(raw);
-        if (v != null && v.routeId() != null && v.routeId() == routeId) destinatie.accept(v);
+        if (v != null && v.routeId() != null && routeIds.contains(v.routeId())) destinatie.accept(v);
     }
 
     @Override

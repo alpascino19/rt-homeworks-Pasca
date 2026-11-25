@@ -6,10 +6,16 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -101,6 +107,34 @@ public final class CtpApiClient {
 
     public DetaliiLinie linie(int routeId) throws IOException, InterruptedException {
         return parseLinie(get("/api/line?route_id=" + routeId));
+    }
+
+    /**
+     * Traseele tuturor liniilor (pentru căutarea după destinație). Sunt date statice: se păstrează
+     * în fisierCache și se cer din nou doar dacă fișierul e mai vechi de 7 zile.
+     */
+    public Map<Integer, DetaliiLinie> toateLiniile(List<Linie> linii, Path fisierCache) throws IOException, InterruptedException {
+        if (Files.exists(fisierCache)
+                && Files.getLastModifiedTime(fisierCache).toInstant().isAfter(Instant.now().minus(Duration.ofDays(7)))) {
+            try {
+                Map<Integer, DetaliiLinie> m = JSON.readValue(fisierCache.toFile(), new TypeReference<Map<Integer, DetaliiLinie>>() { });
+                if (!m.isEmpty()) return m;
+            } catch (IOException e) {
+                System.out.println("[api] cache-ul de trasee e stricat, îl refac: " + e.getMessage());
+            }
+        }
+        System.out.println("[api] citesc traseele celor " + linii.size() + " linii (o singură dată, apoi din " + fisierCache + ") ...");
+        Map<Integer, DetaliiLinie> m = new TreeMap<>();
+        for (Linie l : linii) {
+            try {
+                m.put(l.routeId(), linie(l.routeId()));
+            } catch (ApiException e) {
+                if (e.status != 404) throw e;  // linie fără traseu: o sărim
+            }
+            if (m.size() % 40 == 0) System.out.println("[api]   " + m.size() + "/" + linii.size());
+        }
+        JSON.writeValue(fisierCache.toFile(), m);
+        return m;
     }
 
     static List<Linie> parseLinii(String json) throws IOException {

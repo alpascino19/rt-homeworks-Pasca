@@ -56,7 +56,7 @@ public final class Tracker {
     private final Traseu traseu;
     private final String tripAles;
     private final double sStatie;
-    private final double mersS;
+    private double mersS;                 // se poate actualiza din locația utilizatorului
     private final Setari setari;
     private final Clock ceas;
     private final MasinaStari masina;
@@ -65,6 +65,7 @@ public final class Tracker {
     private Long urmarit;                 // id-ul autobuzului urmărit
     private Instant ultimulCandidat;      // ultima dată când a existat un candidat
     private Rezultat ultimul;
+    private Double etaPrins;              // ETA-ul primului autobuz care poate fi prins (la ultima evaluare)
 
     public Tracker(Traseu traseu, String tripAles, int indexStatie, int mersMin, Setari setari, Clock ceas) {
         this.traseu = traseu;
@@ -131,6 +132,23 @@ public final class Tracker {
         st.tRef = st.timestamp;
     }
 
+    /** Timpul de mers pe jos până la stație s-a schimbat (utilizatorul s-a mișcat). */
+    public void seteazaMers(double secunde) {
+        mersS = secunde;
+    }
+
+    public double mersS() {
+        return mersS;
+    }
+
+    /**
+     * ETA-ul (s) primului autobuz care ajunge în stație după utilizator (ETA >= timpul de mers),
+     * la ultima evaluare; null dacă nu e niciunul. Pentru compararea variantelor de drum.
+     */
+    public Double etaPrimulPrins() {
+        return etaPrins;
+    }
+
     /** Utilizatorul a confirmat că a urcat. */
     public Rezultat confirma() {
         masina.confirma();
@@ -151,10 +169,12 @@ public final class Tracker {
         StareVehicul cel = null, actual = null;
         double etaCel = Double.MAX_VALUE, etaActual = 0;
         int candidati = 0;
+        etaPrins = null;
         for (StareVehicul st : vehicule.values()) {
             if (!esteCandidat(st, acum)) continue;
             candidati++;
             double eta = eta(st, acum);
+            if (eta >= mersS && (etaPrins == null || eta < etaPrins)) etaPrins = eta;
             if (eta < etaCel) {
                 etaCel = eta;
                 cel = st;

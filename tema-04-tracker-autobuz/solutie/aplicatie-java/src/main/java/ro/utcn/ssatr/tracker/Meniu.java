@@ -17,8 +17,10 @@ import ro.utcn.ssatr.tracker.CtpApiClient.TraseuSens;
 /** Meniul de consolă: linia, sensul, stația și timpul de mers pe jos. */
 public final class Meniu {
 
-    /** Ce a ales utilizatorul. */
+    /** Ce a ales utilizatorul. mersMin = DIN_LOCATIE: timpul de mers se calculează din locație. */
     public record Selectie(Linie linie, TraseuSens sens, Statie statie, int mersMin) { }
+
+    public static final int DIN_LOCATIE = -1;
 
     public interface IncarcaLinie {
         DetaliiLinie incarca(int routeId) throws IOException, InterruptedException;
@@ -48,8 +50,22 @@ public final class Meniu {
             TraseuSens sens = alege("Sensul", sensuri,
                     s -> "spre " + s.headsign() + "  (" + s.stops().size() + " stații)");
             Statie statie = alege("Stația", sens.stops(), Statie::name);
-            int mers = citesteMinute("Timpul de mers pe jos până la stație, în minute [5]: ", 5);
+            int mers = citesteMinute("Timpul de mers pe jos până la stație, în minute [5] (L = calculat din locația ta): ", 5);
             return new Selectie(linie, sens, statie, mers);
+        }
+    }
+
+    /** true = modul destinație (de la locația mea), false = linie / sens / stație. */
+    public boolean alegeDestinatia() throws IOException {
+        out.println();
+        out.println("Cum alegi autobuzul?");
+        out.println("  1. aleg linia, sensul și stația");
+        out.println("  2. aleg unde vreau să ajung (pornind de la locația mea)");
+        for (;;) {
+            String r = citesteLinie("Alegerea [1]: ");
+            if (r.isEmpty() || r.equals("1")) return false;
+            if (r.equals("2")) return true;
+            out.println("Introduceți 1 sau 2.");
         }
     }
 
@@ -110,13 +126,14 @@ public final class Meniu {
         for (;;) {
             String r = citesteLinie(prompt);
             if (r.isEmpty()) return implicit;
+            if (r.equalsIgnoreCase("L")) return DIN_LOCATIE;
             try {
                 int m = Integer.parseInt(r);
                 if (m >= 0 && m <= 60) return m;
             } catch (NumberFormatException e) {
                 // cerem din nou
             }
-            out.println("Introduceți un număr de minute între 0 și 60.");
+            out.println("Introduceți un număr de minute între 0 și 60, sau L.");
         }
     }
 

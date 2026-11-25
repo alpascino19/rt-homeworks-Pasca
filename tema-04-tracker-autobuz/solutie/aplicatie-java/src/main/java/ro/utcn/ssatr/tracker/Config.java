@@ -51,6 +51,9 @@ public final class Config {
     public String mqttBroker()   { return get("mqtt.broker", "MQTT_BROKER", "tcp://control.aut.utcluj.ro:11188"); }
     public String mqttStudent()  { return get("mqtt.student", "MQTT_STUDENT", "Pasca-Alex"); }
 
+    /** Portul paginii locale prin care browserul trimite locația. */
+    public int locatiePort()     { return Integer.parseInt(get("locatie.port", "LOCATIE_PORT", "8080")); }
+
     /** Pragurile stărilor și viteza implicită; lipsă = valorile din Tracker.Setari.IMPLICITE. */
     public Tracker.Setari setariTracker() {
         MasinaStari.Praguri d = MasinaStari.Praguri.IMPLICITE;
