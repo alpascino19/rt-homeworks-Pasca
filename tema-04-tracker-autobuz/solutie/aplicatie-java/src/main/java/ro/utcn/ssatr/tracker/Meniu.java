@@ -74,8 +74,11 @@ public final class Meniu {
             }
             if (gasite.isEmpty()) {
                 out.println("Nimic găsit pentru \"" + cautare + "\".");
-                listat = false;
-            } else if (listat) {
+                cautare = "";  // reia de la toată lista (afișată, dacă e scurtă)
+                listat = elemente.size() <= LISTA_SCURTA;
+                continue;
+            }
+            if (listat) {
                 out.println();
                 out.println(titlu + (cautare.isEmpty() ? "" : " (\"" + cautare + "\")") + ":");
                 for (int i = 0; i < gasite.size(); i++) {

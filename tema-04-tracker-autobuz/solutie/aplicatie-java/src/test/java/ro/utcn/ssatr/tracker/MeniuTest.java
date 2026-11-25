@@ -53,6 +53,15 @@ class MeniuTest {
     }
 
     @Test
+    void dupaCautareFaraRezultatSePoateAlegeDupaNumar() throws Exception {
+        List<String> statii = List.of("Primăverii", "Minerva", "Izlazului");
+
+        String ales = meniu("unirii\n2\n").alege("Stația", statii, s -> s);
+
+        assertEquals("Minerva", ales);
+    }
+
+    @Test
     void fluxCompletCuTimpImplicit() throws Exception {
         Statie a = new Statie(1, "Disp. Bucium", 46.75, 23.54);
         Statie b = new Statie(2, "Mărăști", 46.77, 23.61);
