@@ -54,8 +54,11 @@ public final class Main {
                 sel.linie().line(), sel.linie().routeId(), sel.sens().headsign(), sel.sens().tripId(),
                 sel.statie().name(), sel.statie().id(), sel.mersMin());
 
-        // Callback-urile RabbitMQ / replay doar pun pozițiile în coadă; un singur thread le prelucrează.
-        BlockingQueue<Vehicul> coada = new LinkedBlockingQueue<>();
+        // Callback-urile RabbitMQ / replay / MQTT doar pun evenimente în coadă (Vehicul, Urcat,
+        // PlacaOnline); un singur thread (tracker) le prelucrează, deci Tracker nu are nevoie de lacăte.
+        BlockingQueue<Object> coada = new LinkedBlockingQueue<>();
+        MqttBridge mqtt = new MqttBridge(config.mqttBroker(), config.mqttStudent(), coada::offer);
+        mqtt.conecteaza();
         VehicleFeed feed = new VehicleFeed(sel.linie().routeId(), coada::offer);
         Clock ceas;
         if (arg.containsKey("replay")) {
@@ -69,7 +72,10 @@ public final class Main {
             feed.pornesteLive(config, arg.containsKey("record") ? Path.of(arg.get("record")) : null);
             if (arg.containsKey("record")) System.out.println("[record] salvez mesajele brute în " + arg.get("record"));
         }
-        Runtime.getRuntime().addShutdownHook(new Thread(feed::close, "oprire"));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            feed.close();
+            mqtt.close();
+        }, "oprire"));
 
         Traseu traseu = new Traseu(sel.sens());
         int indexStatie = sel.sens().stops().indexOf(sel.statie());
@@ -78,16 +84,44 @@ public final class Main {
         Tracker tracker = new Tracker(traseu, sel.sens().tripId(), indexStatie, sel.mersMin(), config.setariTracker(), ceas);
 
         // Threadul "tracker" (aici, main): golește coada, recalculează cel mult o dată pe secundă.
-        Rezultat afisat = null;
-        long urmatoareaEvaluare = 0, ultimaAfisare = 0;
+        String linie = sel.linie().line();
+        String statie = sel.statie().name();
+        Rezultat afisat = null, publicat = null;
+        long urmatoareaEvaluare = 0, ultimaAfisare = 0, ultimaPublicare = 0;
+        Long ultimulUrcat = null;
         for (;;) {
-            Vehicul v = coada.poll(200, TimeUnit.MILLISECONDS);
-            if (v != null) tracker.actualizeaza(v);
+            Object ev = coada.poll(200, TimeUnit.MILLISECONDS);
+            if (ev instanceof Vehicul v) {
+                tracker.actualizeaza(v);
+            } else if (ev instanceof MqttBridge.PlacaOnline p) {
+                System.out.println(p.online() ? "[placa] ONLINE" : "[placa] OFFLINE (fără conexiune)");
+            } else if (ev instanceof MqttBridge.Urcat u) {
+                // retrimiterile aceleiași apăsări au același ts: confirmăm din nou, fără să anunțăm iar
+                if (ultimulUrcat == null || u.ts() != ultimulUrcat) {
+                    ultimulUrcat = u.ts();
+                    System.out.println();
+                    System.out.println("**************** URCAT: confirmat de la placă, urmărirea s-a oprit ****************");
+                    System.out.println();
+                }
+                Rezultat r = tracker.confirma();
+                mqtt.confirmaUrcat();
+                mqtt.publicaStare(r, linie, statie);
+                publicat = r;
+                ultimaPublicare = System.currentTimeMillis();
+            }
+
             long acum = System.currentTimeMillis();
             if (acum < urmatoareaEvaluare) continue;
             urmatoareaEvaluare = acum + 1000;
 
             Rezultat r = tracker.evalueaza(feed.conectat());
+            // spre placă: la schimbarea stării / autobuzului și heartbeat la 10 s (watchdog-ul plăcii are 30 s)
+            if (publicat == null || r.stare() != publicat.stare() || !Objects.equals(r.vehicul(), publicat.vehicul())
+                    || acum - ultimaPublicare >= 10_000) {
+                mqtt.publicaStare(r, linie, statie);
+                publicat = r;
+                ultimaPublicare = acum;
+            }
             boolean schimbat = afisat == null || r.stare() != afisat.stare()
                     || !Objects.equals(r.vehicul(), afisat.vehicul()) || r.candidati() != afisat.candidati();
             if (schimbat || acum - ultimaAfisare >= 5000) {
