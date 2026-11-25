@@ -49,13 +49,13 @@ void wifi_connect(void) {
         delay(500);
         Serial.print(".");
         if (millis() - start > 20000) {
-            Serial.printf("\nnu m-am conectat la \"%s\"; rețele vizibile:\n", WIFI_SSID);
+            Serial.printf("\nnu m-am conectat la \"%s\"; retele vizibile:\n", WIFI_SSID);
             WiFi.disconnect();
             int n = WiFi.scanNetworks();
             for (int i = 0; i < n; i++) {
                 Serial.printf("  %s (%d dBm)\n", WiFi.SSID(i).c_str(), (int)WiFi.RSSI(i));
             }
-            Serial.println("verificați SECRET_WIFI_SSID și SECRET_WIFI_PASSWORD din secrets.h; reîncerc");
+            Serial.println("verificati SECRET_WIFI_SSID si SECRET_WIFI_PASSWORD din secrets.h; reincerc");
             WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
             start = millis();
         }
@@ -67,10 +67,10 @@ void time_sync(void) {
     configTime(0, 0, NTP_SERVER);  // UTC; SNTP continuă să corecteze ceasul în fundal
     struct tm now;
     if (getLocalTime(&now, 10000)) {
-        Serial.printf("ora sincronizată prin SNTP: %04d-%02d-%02d %02d:%02d:%02d UTC\n", now.tm_year + 1900,
+        Serial.printf("ora sincronizata prin SNTP: %04d-%02d-%02d %02d:%02d:%02d UTC\n", now.tm_year + 1900,
                       now.tm_mon + 1, now.tm_mday, now.tm_hour, now.tm_min, now.tm_sec);
     } else {
-        Serial.println("ora NU s-a sincronizat încă: vechimea stărilor nu poate fi verificată");
+        Serial.println("ora NU s-a sincronizat inca: vechimea starilor nu poate fi verificata");
     }
 }
 
@@ -100,10 +100,10 @@ static void on_mqtt_event(void* handler_arg, esp_event_base_t base, int32_t even
         esp_mqtt_client_subscribe(g_client, g_topic_confirmare, 1);
         esp_mqtt_client_publish(g_client, g_topic_online, "1", 0, 1, 1);
         g_connected = true;
-        Serial.printf("[mqtt] conectat la %s, abonat la %s și %s\n", BROKER_URI, g_topic_stare, g_topic_confirmare);
+        Serial.printf("[mqtt] conectat la %s, abonat la %s si %s\n", BROKER_URI, g_topic_stare, g_topic_confirmare);
     } else if (event_id == MQTT_EVENT_DISCONNECTED) {
         g_connected = false;
-        Serial.println("[mqtt] deconectat, clientul reîncearcă singur");
+        Serial.println("[mqtt] deconectat, clientul reincearca singur");
     } else if (event_id == MQTT_EVENT_DATA) {
         // Un mesaj mai mare decât bufferul clientului vine în bucăți; mesajele
         // noastre sunt < 256 B, deci o bucată cu offset != 0 nu e de la noi.
@@ -123,7 +123,7 @@ static void on_mqtt_event(void* handler_arg, esp_event_base_t base, int32_t even
         const char* kind = strrchr(topic, '/');
         message_received(kind ? kind + 1 : topic, text);
     } else if (event_id == MQTT_EVENT_ERROR) {
-        Serial.println("[mqtt] eroare (broker inaccesibil? portul blocat de rețea?)");
+        Serial.println("[mqtt] eroare (broker inaccesibil? portul blocat de retea?)");
     }
 }
 
@@ -162,7 +162,7 @@ bool mqtt_publish(const char* kind, const char* text, bool retain) {
     make_topic(topic, sizeof(topic), kind);
     int id = esp_mqtt_client_publish(g_client, topic, text, 0, 1, retain ? 1 : 0);
     if (id < 0) {
-        Serial.printf("[mqtt] publicarea pe %s a eșuat\n", topic);
+        Serial.printf("[mqtt] publicarea pe %s a esuat\n", topic);
         return false;
     }
     return true;

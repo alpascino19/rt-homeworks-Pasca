@@ -31,6 +31,8 @@ import ro.utcn.ssatr.tracker.Tracker.Rezultat;
 public final class Main {
 
     public static void main(String[] args) throws Exception {
+        System.setOut(new Meniu.ConsolaFaraDiacritice(System.out));
+        System.setErr(new Meniu.ConsolaFaraDiacritice(System.err));
         Map<String, String> arg = argumente(args);
         Config config = new Config(Path.of("config.properties"));
         CtpApiClient api;

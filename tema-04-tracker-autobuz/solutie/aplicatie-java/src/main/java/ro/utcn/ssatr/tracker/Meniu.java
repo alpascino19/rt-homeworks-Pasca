@@ -130,8 +130,26 @@ public final class Meniu {
 
     /** "Mărăști" -> "marasti", ca să se poată căuta și fără diacritice. */
     static String normalizeaza(String s) {
-        return Normalizer.normalize(s, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "")
-                .toLowerCase(Locale.ROOT);
+        return faraDiacritice(s).toLowerCase(Locale.ROOT);
+    }
+
+    /** "P-ța Mărăști" -> "P-ta Marasti". */
+    static String faraDiacritice(String s) {
+        return Normalizer.normalize(s, Normalizer.Form.NFD).replaceAll("\\p{M}", "");
+    }
+
+    /**
+     * Consola Windows afișează diacriticele ca "?": le scoatem din tot ce se tipărește.
+     * println, printf și append trec toate prin print(String).
+     */
+    static final class ConsolaFaraDiacritice extends java.io.PrintStream {
+        ConsolaFaraDiacritice(java.io.PrintStream original) {
+            super(original, true);
+        }
+
+        @Override
+        public void print(String s) {
+            super.print(s == null ? null : faraDiacritice(s));
+        }
     }
 }

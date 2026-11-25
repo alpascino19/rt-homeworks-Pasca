@@ -26,6 +26,18 @@ class MeniuTest {
     }
 
     @Test
+    void consolaScoateDiacriticeleDinPrintlnSiPrintf() {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        PrintStream c = new Meniu.ConsolaFaraDiacritice(new PrintStream(bytes, true, StandardCharsets.UTF_8));
+
+        c.println("Stația P-ța Mărăști");
+        c.printf("%s -> %d%n", "Încercarea ȘȚ", 1);
+
+        assertEquals("Statia P-ta Marasti" + System.lineSeparator() + "Incercarea ST -> 1" + System.lineSeparator(),
+                bytes.toString(StandardCharsets.UTF_8));
+    }
+
+    @Test
     void normalizeazaDiacriticele() {
         assertEquals("marasti", Meniu.normalizeaza("Mărăști"));
         assertEquals("p-ta 1 mai", Meniu.normalizeaza("P-ța 1 Mai"));

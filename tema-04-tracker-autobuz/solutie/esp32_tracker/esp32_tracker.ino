@@ -49,7 +49,8 @@ static bool led_aprins(Stare s, uint32_t t) {
         case PLEACA:      return t % 1000 < 500;                       // 1 Hz
         case GRABESTE_TE: return t % 200 < 100;                        // 5 Hz
         case IN_STATIE:   return true;                                 // aprins continuu
-        case CONFIRMAT:   return t < 600 && t % 200 < 100;             // 3 clipiri rapide, apoi stins
+        // 3 clipiri, apoi stins; fiecare începe cu o pauză, ca să se vadă și după IN_STATIE (aprins)
+        case CONFIRMAT:   return t < 1200 && t % 400 >= 200;
     }
     return false;
 }
@@ -92,13 +93,13 @@ void message_received(const char* kind, const char* text) {
     if (strcmp(kind, "stare") == 0) {
         Stare s;
         if (!parse_stare(doc["stare"], &s)) {
-            Serial.printf("[stare] necunoscută, ignorată: %s\n", text);
+            Serial.printf("[stare] necunoscuta, ignorata: %s\n", text);
             return;
         }
         // O stare retained poate fi rămasă de la o rulare veche a aplicației Java.
         int64_t ts = doc["ts"] | (int64_t)0;
         if (time_valid() && (ts == 0 || epoch_ms() / 1000 - ts > MAX_STATE_AGE_S)) {
-            Serial.printf("[stare] veche sau fără ts, ignorată: %s\n", text);
+            Serial.printf("[stare] veche sau fara ts, ignorata: %s\n", text);
             return;
         }
         xQueueOverwrite(coadaStare, &s);
@@ -176,12 +177,12 @@ static void taskButon(void*) {
         xQueueReset(coadaConfirmare);  // o confirmare veche nu se aplică apăsării de acum
         bool confirmat = false;
         for (int incercare = 1; incercare <= MAX_SEND_ATTEMPTS && !confirmat; incercare++) {
-            Serial.printf("[buton] URCAT, încercarea %d/%d\n", incercare, MAX_SEND_ATTEMPTS);
+            Serial.printf("[buton] URCAT, incercarea %d/%d\n", incercare, MAX_SEND_ATTEMPTS);
             xQueueSend(coadaIesire, &ev, pdMS_TO_TICKS(100));
             uint8_t semnal;
             confirmat = xQueueReceive(coadaConfirmare, &semnal, pdMS_TO_TICKS(CONFIRM_TIMEOUT_MS)) == pdTRUE;
         }
-        Serial.println(confirmat ? "[buton] confirmat de aplicația Java" : "[buton] fără confirmare după 3 încercări");
+        Serial.println(confirmat ? "[buton] confirmat de aplicatia Java" : "[buton] fara confirmare dupa 3 incercari");
 
         xQueueReset(coadaButon);  // apăsările făcute cât așteptam nu mai trimit încă un URCAT
     }
