@@ -1,0 +1,3 @@
+# Secrete: nu se urcă în git (se comit doar variantele .example)
+esp32_tracker/secrets.h
+aplicatie-java/config.properties
