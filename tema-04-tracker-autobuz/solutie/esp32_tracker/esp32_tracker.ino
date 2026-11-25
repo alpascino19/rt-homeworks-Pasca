@@ -49,8 +49,10 @@ static bool led_aprins(Stare s, uint32_t t) {
         case PLEACA:      return t % 1000 < 500;                       // 1 Hz
         case GRABESTE_TE: return t % 200 < 100;                        // 5 Hz
         case IN_STATIE:   return true;                                 // aprins continuu
-        // 3 clipiri, apoi stins; fiecare începe cu o pauză, ca să se vadă și după IN_STATIE (aprins)
-        case CONFIRMAT:   return t < 1200 && t % 400 >= 200;
+        // 3 clipiri de 200 ms, pauză ~3 s, se repetă: altfel ar arăta ca DEPARTE (stins).
+        // Fiecare clipire începe cu o pauză, ca să se vadă și după IN_STATIE (aprins).
+        case CONFIRMAT: { uint32_t c = t % 4000;
+                          return c < 1200 && c % 400 >= 200; }
     }
     return false;
 }
