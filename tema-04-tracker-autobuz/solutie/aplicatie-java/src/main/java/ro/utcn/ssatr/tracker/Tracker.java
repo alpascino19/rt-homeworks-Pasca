@@ -32,7 +32,7 @@ public final class Tracker {
     static final double TRECUT_M = -30;             // rest sub atât: a trecut de stație
     static final double SCHIMBARE_S = 30;           // alt autobuz devine urmărit doar dacă e mai bun cu atât
     static final double V_MIN = 1, V_MAX = 15;      // m/s, viteze plauzibile
-    static final double TAU_EMA_S = 60;             // constanta de timp a netezirii (~ ultimele 2 minute)
+    static final double TAU_EMA_S = 120;            // constanta de timp a netezirii (~ ultimele 2 minute)
     static final double MISCARE_MIN_M = 10;         // sub atât vehiculul e considerat pe loc
     static final double PAUZA_MAX_S = 180;          // interval prea lung între poziții: nu se calculează viteza
 
@@ -124,7 +124,9 @@ public final class Tracker {
 
         double vMasurat = clamp(ds / dt);
         double alfa = 1 - Math.exp(-dt / TAU_EMA_S);
-        st.viteza = st.viteza == null ? vMasurat : clamp(st.viteza + alfa * (vMasurat - st.viteza));
+        // prima măsurare pornește de la viteza implicită, nu o înlocuiește (o singură măsurare e zgomotoasă)
+        double anterior = st.viteza != null ? st.viteza : setari.vitezaImplicita();
+        st.viteza = clamp(anterior + alfa * (vMasurat - anterior));
         st.sRef = st.s;
         st.tRef = st.timestamp;
     }

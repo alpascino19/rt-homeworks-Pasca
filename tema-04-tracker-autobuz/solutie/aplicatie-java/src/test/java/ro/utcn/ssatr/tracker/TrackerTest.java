@@ -54,17 +54,17 @@ class TrackerTest {
 
     @Test
     void vitezaDinIstoricSiEta() {
-        // 120 m la fiecare 20 s = 6 m/s
-        for (int i = 0; i <= 5; i++) {
-            pozitie(1, "A", 1000 + 120 * i);
-            if (i < 5) ceas.trece(20);
+        // 120 m la fiecare 20 s = 6 m/s; netezirea pornește de la 5 m/s și se apropie de 6
+        for (int i = 0; i <= 15; i++) {
+            pozitie(1, "A", 120 * i);
+            if (i < 15) ceas.trece(20);
         }
         Rezultat r = t.evalueaza(true);
 
         assertEquals("B1", r.vehicul());
-        assertEquals(2400, r.restM());
-        assertEquals(400, r.etaS(), 2);         // 2400 m / 6 m/s
-        assertEquals(Stare.PLEACA, r.stare());  // rezervă 400 - 300 = 100 s <= 180
+        assertEquals(2200, r.restM());
+        assertEquals(2200 / 6.0, r.etaS(), 10);  // ~367 s
+        assertEquals(Stare.PLEACA, r.stare());   // rezervă ~70 s <= 180
     }
 
     @Test
@@ -88,14 +88,15 @@ class TrackerTest {
     void vehiculOpritPastreazaViteza() {
         pozitie(1, "A", 1000);
         ceas.trece(20);
-        pozitie(1, "A", 1120);    // 6 m/s
+        pozitie(1, "A", 1120);    // s-a mișcat: viteza măsurată
+        long etaInainte = t.evalueaza(true).etaS();
         for (int i = 0; i < 3; i++) {  // un minut la semafor
             ceas.trece(20);
             pozitie(1, "A", 1122);
         }
         Rezultat r = t.evalueaza(true);
 
-        assertEquals(2878 / 6.0, r.etaS(), 2);  // nu infinit, nu viteza implicită
+        assertEquals(etaInainte, r.etaS(), 2);  // viteza păstrată: nu scade spre 0, ETA nu explodează
     }
 
     @Test
