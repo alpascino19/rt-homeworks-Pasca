@@ -5,10 +5,12 @@ import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.time.Clock;
-import java.time.Duration;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -18,6 +20,7 @@ import ro.utcn.ssatr.tracker.CtpApiClient.Linie;
 import ro.utcn.ssatr.tracker.CtpApiClient.Statie;
 import ro.utcn.ssatr.tracker.CtpApiClient.TraseuSens;
 import ro.utcn.ssatr.tracker.Meniu.Selectie;
+import ro.utcn.ssatr.tracker.Tracker.Rezultat;
 
 /**
  * Tracker personal de autobuz.
@@ -69,18 +72,41 @@ public final class Main {
         Runtime.getRuntime().addShutdownHook(new Thread(feed::close, "oprire"));
 
         Traseu traseu = new Traseu(sel.sens());
-        double sStatie = traseu.sStatie(sel.sens().stops().indexOf(sel.statie()));
-        System.out.printf("Traseu: %.0f m, stația la %.0f m de la capăt. Ctrl+C pentru oprire.%n", traseu.lungime(), sStatie);
+        int indexStatie = sel.sens().stops().indexOf(sel.statie());
+        System.out.printf("Traseu: %.0f m, stația la %.0f m de la capăt. Imaginea flotei se adună în ~1 minut. Ctrl+C pentru oprire.%n",
+                traseu.lungime(), traseu.sStatie(indexStatie));
+        Tracker tracker = new Tracker(traseu, sel.sens().tripId(), indexStatie, sel.mersMin(), config.setariTracker(), ceas);
 
-        // shortcut: până la pasul 6 (Tracker) doar afișăm pozițiile liniei, proiectate pe traseu
+        // Threadul "tracker" (aici, main): golește coada, recalculează cel mult o dată pe secundă.
+        Rezultat afisat = null;
+        long urmatoareaEvaluare = 0, ultimaAfisare = 0;
         for (;;) {
-            Vehicul v = coada.poll(1, TimeUnit.SECONDS);
-            if (v == null) continue;
-            Traseu.Proiectie p = traseu.proiecteaza(v.lat(), v.lon());
-            long vechime = Duration.between(v.timestamp(), ceas.instant()).toSeconds();
-            System.out.printf("%-5s trip=%-6s s=%6.0f m lateral=%5.0f m rest=%6.0f m vechime=%3d s%n",
-                    v.label(), v.tripId(), p.s(), p.lateral(), sStatie - p.s(), vechime);
+            Vehicul v = coada.poll(200, TimeUnit.MILLISECONDS);
+            if (v != null) tracker.actualizeaza(v);
+            long acum = System.currentTimeMillis();
+            if (acum < urmatoareaEvaluare) continue;
+            urmatoareaEvaluare = acum + 1000;
+
+            Rezultat r = tracker.evalueaza(feed.conectat());
+            boolean schimbat = afisat == null || r.stare() != afisat.stare()
+                    || !Objects.equals(r.vehicul(), afisat.vehicul()) || r.candidati() != afisat.candidati();
+            if (schimbat || acum - ultimaAfisare >= 5000) {
+                System.out.println(linieStare(r, ceas));
+                afisat = r;
+                ultimaAfisare = acum;
+            }
         }
+    }
+
+    private static final DateTimeFormatter ORA = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.of("Europe/Bucharest"));
+
+    static String linieStare(Rezultat r, Clock ceas) {
+        String autobuz = r.vehicul() == null ? "niciun autobuz"
+                : String.format("autobuz %-5s %5s m pe drum  ETA %s", r.vehicul(),
+                        r.restM() == null ? "?" : r.restM(),
+                        r.etaS() == null ? "?" : String.format("%d:%02d", r.etaS() / 60, r.etaS() % 60));
+        return String.format("[%s] %-11s  %s  (%d candidați, %d vehicule active pe linie)",
+                ORA.format(ceas.instant()), r.stare(), autobuz, r.candidati(), r.activi());
     }
 
     private static Selectie dinMeniu(CtpApiClient api) throws Exception {

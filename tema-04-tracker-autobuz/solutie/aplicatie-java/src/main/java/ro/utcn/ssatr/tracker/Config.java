@@ -50,4 +50,19 @@ public final class Config {
 
     public String mqttBroker()   { return get("mqtt.broker", "MQTT_BROKER", "tcp://control.aut.utcluj.ro:11188"); }
     public String mqttStudent()  { return get("mqtt.student", "MQTT_STUDENT", "Pasca-Alex"); }
+
+    /** Pragurile stărilor și viteza implicită; lipsă = valorile din Tracker.Setari.IMPLICITE. */
+    public Tracker.Setari setariTracker() {
+        MasinaStari.Praguri d = MasinaStari.Praguri.IMPLICITE;
+        return new Tracker.Setari(new MasinaStari.Praguri(
+                numar("prag.pleaca_s", d.pleacaS()),
+                numar("prag.in_statie_m", d.inStatieM()),
+                numar("histerezis.s", d.histerezisS()),
+                numar("histerezis.m", d.histerezisM())),
+                numar("viteza.implicita_mps", Tracker.Setari.IMPLICITE.vitezaImplicita()));
+    }
+
+    private double numar(String key, double def) {
+        return Double.parseDouble(get(key, null, String.valueOf(def)));
+    }
 }
