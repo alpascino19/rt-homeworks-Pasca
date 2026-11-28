@@ -4,8 +4,10 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import ro.utcn.ssatr.tracker.MasinaStari.Stare;
@@ -40,6 +42,7 @@ public final class Tracker {
         final long id;
         String label;
         String tripId;
+        double lat, lon;           // ultima poziție GPS acceptată (pentru hartă)
         Instant timestamp;         // ultima poziție acceptată
         Instant vazutLa;           // ultimul mesaj primit (ceasul nostru)
         Double s;                  // poziția pe traseu; null dacă necunoscută sau în afara traseului
@@ -88,6 +91,8 @@ public final class Tracker {
         if (st.timestamp != null && !v.timestamp().isAfter(st.timestamp)) return;  // duplicat sau mai veche
         st.timestamp = v.timestamp();
         st.tripId = v.tripId();
+        st.lat = v.lat();
+        st.lon = v.lon();
 
         Traseu.Proiectie p = st.s == null ? traseu.proiecteaza(v.lat(), v.lon())
                                           : traseu.proiecteaza(v.lat(), v.lon(), st.s);
@@ -147,6 +152,21 @@ public final class Tracker {
      */
     public Double etaPrimulPrins() {
         return etaPrins;
+    }
+
+    /** Un vehicul al liniei, pentru hartă. candidat = vine spre stație pe sensul ales; urmarit = cel de pe LED. */
+    public record VehiculHarta(String label, double lat, double lon, boolean candidat, boolean urmarit, long vechimeS) { }
+
+    /** Vehiculele liniei cu o poziție acceptată, la momentul curent. */
+    public List<VehiculHarta> vehiculeHarta() {
+        Instant acum = ceas.instant();
+        List<VehiculHarta> l = new ArrayList<>();
+        for (StareVehicul st : vehicule.values()) {
+            if (st.timestamp == null) continue;
+            l.add(new VehiculHarta(st.label, st.lat, st.lon, esteCandidat(st, acum),
+                    urmarit != null && st.id == urmarit, Duration.between(st.timestamp, acum).toSeconds()));
+        }
+        return l;
     }
 
     /** Utilizatorul a confirmat că a urcat. */

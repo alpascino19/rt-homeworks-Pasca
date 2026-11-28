@@ -260,6 +260,23 @@ Varianta:
 java -jar target/tracker-autobuz-1.0.jar --de-la 46.7770,23.6100 --replay inregistrari/exemplu-linia25-10min.jsonl --speed 10
 ```
 
+### Harta „călătoria mea”
+
+La pornire, aplicația deschide în browser `http://localhost:8080`, aceeași pagină care primește locația. Pagina arată:
+- traseul liniei urmărite, cu stațiile;
+- stația unde urci (verde) și, în modul destinație, stația unde cobori (mov);
+- autobuzele liniei, actualizate la 2 s: cel urmărit pe LED e portocaliu, cele care vin spre stația ta sunt albastre, celelalte (alt sens, au trecut, sunt în afara traseului) sunt gri;
+- locația ta și linia până la stație;
+- un panou cu aceeași stare ca pe LED, plus ETA-ul, distanța rămasă, timpul tău de mers, cât mai ai până pleci și dacă placa e online.
+
+În modul destinație, panoul afișează și variantele găsite.
+
+Detalii tehnice:
+- **Cum funcționează:** pagina citește `/traseu` și `/stare`, două JSON-uri construite de threadul tracker (`Harta.java`), și nu calculează nimic.
+- **Dependențe externe:** harta folosește Leaflet (de pe unpkg, cu verificare SRI) și imagini OpenStreetMap, deci are nevoie de internet.
+- **Port:** dacă portul e ocupat, aplicația merge mai departe fără hartă; portul se schimbă cu `locatie.port`.
+- **Fără browser:** cu `--browser nu`, pagina nu se mai deschide automat.
+
 **Limitări:**
 - Fără rute cu schimbare de linie.
 - Mersul pe jos e estimat, fără rutare pe străzi.
@@ -276,3 +293,87 @@ java -jar target/tracker-autobuz-1.0.jar --de-la 46.7770,23.6100 --replay inregi
 - **Vehiculele retrase nu sunt anunțate de sursă.** Dispar din calcul după 3 minute fără mesaje.
 - **Proiecția echirectangulară** e precisă pentru distanțele dintr-un oraș (eroare sub 0,1 %).
 - **Brokerul MQTT al cursului nu are autentificare,** deci oricine poate publica pe topic-urile noastre.
+
+## 10. Ce s-a făcut: pași, fișiere, decizii, verificări
+
+### Pașii, în ordine
+
+| # | Ce s-a făcut | Cum s-a verificat |
+|---|---|---|
+| 1 | Analiza enunțului, a ghidului de integrare și a temelor 01–03 (setările MQTT, `connection.h` / `connection.cpp`) | brokerul `:11188` e fără autentificare; Paho 1.2.5 în Java; pe placă, clientul MQTT din ESP-IDF |
+| 2 | Secretele: `solutie/.gitignore`, `config.example.properties`, `secrets.example.h` | `git check-ignore` pentru `config.properties` și `secrets.h` |
+| 3 | Proiectul Maven, `CtpApiClient`, meniul linie / sens / stație | pe API-ul real: 168 de linii; o cheie greșită dă un mesaj clar pentru 401 |
+| 4 | `Traseu` (JTS): distanța pe drum și continuitatea pe bucle | teste: curbă în L, dus-întors, zgomot GPS |
+| 5 | `VehicleFeed` (RabbitMQ, coadă proprie pe `cluj.vehicles`), `--record` / `--replay` | live pe linia 25; replay-ul dă exact aceleași rezultate ca rularea live |
+| 6 | `Tracker` + `MasinaStari`: filtrare, viteză netezită, ETA, stări cu histerezis | teste, plus reglaj pe o înregistrare reală de 9 minute (mai jos) |
+| 7 | `MqttBridge`: stare retained + heartbeat, `URCAT` → confirmare | cap-coadă cu placa: BOOT → `URCAT` în Java → `CONFIRMAT` pe LED, din prima încercare |
+| 8 | Schița ESP32: 3 taskuri, ISR cu debounce, cozi, watchdog | fiecare stare trimisă pe rând, verificată în jurnalul plăcii și pe LED; watchdog-ul trece singur pe `FARA_DATE` după 30 s |
+| 9 | Test cap-coadă live, cu autobuze în circulație | rulat de utilizator, ziua (`--record inregistrari/test-live.jsonl`) |
+| 10 | Acest README | – |
+| 11 | Verificarea finală | `mvn clean package` verde; schița se compilează fără warning-uri (`--warnings all`); cheia API și parola RabbitMQ nu apar în niciun commit (căutare în tot istoricul) |
+| + | Extinderi: locația utilizatorului, alegerea după destinație, harta „călătoria mea” (secțiunea 8) | teste + replay; harta, verificată prin capturi de ecran dintr-un Chrome headless |
+
+### Fișierele soluției
+
+| Fișier | Rol |
+|---|---|
+| `aplicatie-java/pom.xml` | Java 17; Jackson, amqp-client 5.21.0, Paho 1.2.5, JTS 1.20, JUnit 5; fat-jar cu maven-shade |
+| `config.example.properties` | modelul de configurare; cel real, `config.properties`, e ignorat de git |
+| `Main.java` | meniul, pornirea fără meniu (`--route-id` …), cele două moduri, bucla threadului tracker, shutdown hook |
+| `Config.java` | configurarea din fișier și din variabile de mediu; pragurile stărilor |
+| `CtpApiClient.java` | `/api/lines`, `/api/line`, toate traseele (cu `cache-trasee.json`); 401/404 fatale, 502/503 reîncercate cu backoff |
+| `Meniu.java` | alegerea din liste, cu căutare fără diacritice; filtrul care scoate diacriticele din consolă |
+| `Traseu.java` | proiecția în metri, `LengthIndexedLine`, fereastra de continuitate, stațiile în ordinea parcurgerii |
+| `Vehicul.java` | parsarea tolerantă a mesajelor RabbitMQ |
+| `VehicleFeed.java` | consumatorul RabbitMQ, înregistrarea și redarea |
+| `CeasReplay.java` | ceasul virtual al replay-ului |
+| `Tracker.java` | starea vehiculelor, candidații, viteza EMA, ETA, autobuzul urmărit, „primul autobuz pe care îl prinzi” |
+| `MasinaStari.java` | stările cu histerezis (clasă pură) |
+| `MqttBridge.java` | topic-urile `stare` / `eveniment` / `confirmare` / `online` |
+| `Planificator.java` | variantele directe spre o destinație, distanța haversine, mersul pe jos |
+| `ServerLocatie.java`, `resources/web/harta.html` | pagina locală: harta, locația din browser, `/traseu`, `/stare` |
+| `Harta.java` | JSON-ul afișat de hartă |
+| `unelte/TestLed.java` | trimite plăcii stări de test, fără aplicația principală |
+| `inregistrari/*.jsonl` | înregistrări reale pentru replay (doar poziții publice) |
+| `esp32_tracker/esp32_tracker.ino` | taskurile, ISR-ul, cozile, tiparele LED, watchdog-ul |
+| `esp32_tracker/connection.*` | Wi-Fi, SNTP, MQTT (pornind de la tema 03, adaptat) |
+| `esp32_tracker/config.h`, `secrets.example.h` | setări și pini; Wi-Fi-ul real e în `secrets.h`, ignorat de git |
+
+### Decizii și abateri de la specificația inițială
+
+- **Clientul MQTT de pe placă e cel din ESP-IDF, nu PubSubClient.** Așa erau temele 02–03. Rulează în propriul task și se reconectează singur, deci `taskMqtt` doar publică evenimentele.
+- **`connection.cpp` a fost modificat**, deși în tema 03 era „gata făcut”: mesajele sunt de 256 B în loc de 64, sunt două abonări, `online` cu LWT, publicare retained.
+- **Stațiile se proiectează în ordinea parcurgerii** și, pentru un vehicul cunoscut, se preferă poziția din față. Pe un traseu dus-întors, același punct e și „înainte de capăt”, și „după întoarcere”.
+- **Viteza se netezește pe ~2 minute (τ = 120 s) și pornește de la 5 m/s.** Cu τ = 60 s și prima măsurare luată direct, ETA-ul pe date reale sărea 5:35 → 9:19 → 4:46, iar LED-ul ar fi oscilat. Cu reglajul: `PLEACA` → `GRABESTE_TE` → `IN_STATIE`, fără reveniri, iar ETA-ul de cu 3 minute înainte de sosire a greșit cu ~18 s.
+- **`ts` din `stare` e ora reală și la replay,** altfel placa ar respinge stările ca vechi.
+- **`CONFIRMAT` repetă 3 clipiri la ~4 s.** Varianta „3 clipiri, apoi stins” arăta după o secundă la fel ca `DEPARTE`.
+- **Consola e fără diacritice,** pentru că în consola Windows apăreau ca `?`.
+- **Locația, destinația și harta sunt extinderi** dincolo de enunț. Modul clasic a rămas neschimbat.
+
+### Probleme găsite pe parcurs și rezolvate
+
+| Problemă | Cauză | Rezolvare |
+|---|---|---|
+| „25” în lista de linii alegea al 25-lea element | numărul din listă și căutarea foloseau același câmp | listele lungi nu se afișează înainte de o căutare |
+| după „Nimic găsit” nu se mai putea alege după număr | lista nu se reafișa | după o căutare fără rezultat, lista se afișează din nou |
+| la capăt de linie, vehiculul „sărea înapoi” | proiecția alegea primul braț | preferință pentru poziția din față (test dedicat) |
+| ETA și LED-ul oscilau pe date reale | netezire prea scurtă | τ = 120 s, pornire de la viteza implicită |
+| `CONFIRMAT` nu se vedea | 0,6 s, lipit de LED-ul aprins de la `IN_STATIE` | clipiri precedate de pauză, repetate |
+| `?` în loc de diacritice | consola Windows | filtru pe `System.out` / `System.err`; mesajele `Serial` fără diacritice |
+| harta afișa o eroare de geolocație la `--de-la` | browserul refuza geolocația, deși locația era fixă | câmpul `locatie_fixa`; formularul se ascunde (`[hidden]` peste `display: flex`) |
+| parola Wi-Fi pusă în `config.h`, urmărit de git | – | mutată în `secrets.h`, ignorat; `config.h` readus la versiunea din git |
+
+### Testele JUnit (57, fără rețea)
+
+| Clasă | Teste | Ce acoperă |
+|---|---|---|
+| `TrackerTest` | 16 | viteză din istoric, ETA cu vechimea, vehicul oprit, duplicate, sens opus, `trip_id` null, trecut de stație, schimbarea autobuzului cu histerezis, `FARA_DATE`, vehicul inactiv, `CONFIRMAT`, primul autobuz prins |
+| `MasinaStariTest` | 7 | tranziții și histerezis pe toate pragurile |
+| `TraseuTest` | 6 | curbă în L, dus-întors, ordinea stațiilor, zgomot GPS, distanța laterală, revenirea la proiecția globală |
+| `MeniuTest` | 6 | căutare fără diacritice, liste lungi, linii cu același număr, filtrul de consolă |
+| `MqttBridgeTest` | 4 | câmpurile mesajului, limita de 250 B, parsarea `URCAT` |
+| `PlanificatorTest` | 4 | distanțe, variante directe, sens corect, ordonare |
+| `ServerLocatieTest` | 4 | validarea locației, HTTP real: pagina, `/traseu`, `/stare`, `/locatie` |
+| `VehiculTest` | 4 | câmpuri lipsă / `null` / `route_id` necunoscut, mesaje invalide |
+| `CtpApiClientTest` | 3 | parsarea `/api/lines` și `/api/line` cu câmpuri lipsă |
+| `HartaTest` | 3 | JSON-ul hărții |

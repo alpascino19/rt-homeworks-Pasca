@@ -68,6 +68,7 @@ public final class Main {
         // PlacaOnline); un singur thread (tracker) le prelucrează, deci Tracker nu are nevoie de lacăte.
         BlockingQueue<Object> coada = new LinkedBlockingQueue<>();
         Tracker.Setari setari = config.setariTracker();
+        ServerLocatie server = pornesteHarta(arg, config);
 
         try {
             Selectie sel;
@@ -84,17 +85,17 @@ public final class Main {
                     sel = meniu.ruleaza(linii, api::linie);
                 } else {
                     Map<Integer, DetaliiLinie> detalii = api.toateLiniile(linii, Path.of("cache-trasee.json"));
-                    locatie = sursaLocatie(arg, config);
-                    Plan plan = planifica(meniu, linii, detalii, locatie, setari, arg, config, coada);
+                    locatie = sursaLocatie(arg, server);
+                    Plan plan = planifica(meniu, linii, detalii, locatie, setari, arg, config, coada, server);
                     if (plan == null) return;
                     sel = plan.sel();
                     tracker = plan.tracker();
                     sursa = plan.sursa();
-                    urmareste(sel, tracker, sursa, locatie, config, coada);
+                    urmareste(sel, plan.iCoborare(), tracker, sursa, locatie, server, arg.containsKey("de-la"), config, coada);
                     return;
                 }
             }
-            if (sel.mersMin() == Meniu.DIN_LOCATIE) locatie = sursaLocatie(arg, config);
+            if (sel.mersMin() == Meniu.DIN_LOCATIE) locatie = sursaLocatie(arg, server);
 
             sursa = pornesteSursa(Set.of(sel.linie().routeId()), arg, config, coada);
             Traseu traseu = new Traseu(sel.sens());
@@ -102,7 +103,7 @@ public final class Main {
             System.out.printf("Traseu: %.0f m, stația la %.0f m de la capăt. Imaginea flotei se adună în ~1 minut. Ctrl+C pentru oprire.%n",
                     traseu.lungime(), traseu.sStatie(indexStatie));
             tracker = new Tracker(traseu, sel.sens().tripId(), indexStatie, Math.max(0, sel.mersMin()), setari, sursa.ceas());
-            urmareste(sel, tracker, sursa, locatie, config, coada);
+            urmareste(sel, null, tracker, sursa, locatie, server, locatie != null && arg.containsKey("de-la"), config, coada);
         } catch (CtpApiClient.ApiException | IllegalArgumentException e) {
             System.err.println("Eroare: " + e.getMessage());
             System.exit(1);
@@ -132,20 +133,37 @@ public final class Main {
 
     // ------------------------------------------------------------------ locația
 
+    /**
+     * Pagina "călătoria mea" (harta + locația) pe http://localhost:PORT, deschisă în browser
+     * (fără, cu --browser nu). null dacă portul e ocupat: aplicația merge și fără hartă.
+     */
+    private static ServerLocatie pornesteHarta(Map<String, String> arg, Config config) {
+        try {
+            ServerLocatie server = new ServerLocatie(config.locatiePort());
+            Runtime.getRuntime().addShutdownHook(new Thread(server::close, "oprire-harta"));
+            System.out.println("Harta călătoriei: " + server.adresa());
+            if (!"nu".equals(arg.get("browser"))) deschideBrowser(server.adresa());
+            return server;
+        } catch (java.io.IOException e) {
+            System.out.println("[harta] nu pot porni pagina pe portul " + config.locatiePort() + " (" + e.getMessage()
+                    + "); schimbați locatie.port în config.properties. Continui fără hartă.");
+            return null;
+        }
+    }
+
     /** --de-la lat,lon (fixă) sau pagina locală din browser (se actualizează cât e deschisă). */
-    private static Supplier<Locatie> sursaLocatie(Map<String, String> arg, Config config) throws Exception {
+    private static Supplier<Locatie> sursaLocatie(Map<String, String> arg, ServerLocatie server) throws Exception {
         if (arg.containsKey("de-la")) {
             Locatie l = ServerLocatie.parseText(arg.get("de-la"));
             if (l == null) throw new IllegalArgumentException("--de-la trebuie să fie lat,lon (ex. 46.7712,23.6236)");
             System.out.printf("Locația: %.5f, %.5f (din --de-la)%n", l.lat(), l.lon());
             return () -> l;
         }
-        ServerLocatie server = new ServerLocatie(config.locatiePort());
-        Runtime.getRuntime().addShutdownHook(new Thread(server::close, "oprire-locatie"));
+        if (server == null) throw new IllegalArgumentException("pagina de locație nu a pornit; dați locația cu --de-la lat,lon");
         System.out.println();
-        System.out.println("Deschideți în browser " + server.adresa() + " și permiteți accesul la locație");
+        System.out.println("Aștept locația: în pagina " + server.adresa() + " permiteți accesul la locație");
         System.out.println("(sau introduceți acolo coordonatele). Țineți pagina deschisă: timpul de mers se actualizează.");
-        deschideBrowser(server.adresa());
+        server.publicaStare(Harta.mesaj("locatie", "Permiteți accesul la locație sau introduceți coordonatele.", List.of(), null, false));
         Locatie l = server.asteaptaPrima();
         System.out.printf("Locația: %.5f, %.5f (precizie ~%.0f m)%n", l.lat(), l.lon(), l.precizieM());
         return server::ultima;
@@ -165,12 +183,15 @@ public final class Main {
 
     // ------------------------------------------------------------------ modul destinație
 
-    record Plan(Selectie sel, Tracker tracker, Sursa sursa) { }
+    record Plan(Selectie sel, int iCoborare, Tracker tracker, Sursa sursa) { }
 
     /** Destinația din meniu, variantele directe, un minut de ascultat autobuzele, apoi clasamentul. */
     private static Plan planifica(Meniu meniu, List<Linie> linii, Map<Integer, DetaliiLinie> detalii,
                                   Supplier<Locatie> locatie, Tracker.Setari setari, Map<String, String> arg,
-                                  Config config, BlockingQueue<Object> coada) throws Exception {
+                                  Config config, BlockingQueue<Object> coada, ServerLocatie server) throws Exception {
+        if (server != null) {
+            server.publicaStare(Harta.mesaj("destinatie", "Alegeți destinația în consola aplicației.", List.of(), locatie.get(), arg.containsKey("de-la")));
+        }
         // toate stațiile, grupate după nume (aceeași stație apare pe mai multe linii și sensuri)
         Map<String, List<Statie>> dupaNume = new TreeMap<>();
         for (DetaliiLinie d : detalii.values()) {
@@ -191,6 +212,10 @@ public final class Main {
         }
         System.out.printf("%n%d variante directe până la %s (pe jos ar fi ~%s). Ascult autobuzele lor %d s ...%n",
                 optiuni.size(), dest, minute(peJos), COLECTARE.toSeconds());
+        if (server != null) {
+            server.publicaStare(Harta.mesaj("colectare", String.format("%d variante până la %s. Ascult autobuzele lor un minut…",
+                    optiuni.size(), dest), List.of(), locatie.get(), arg.containsKey("de-la")));
+        }
 
         Sursa sursa = pornesteSursa(optiuni.stream().map(o -> o.linie().routeId()).collect(Collectors.toSet()), arg, config, coada);
         List<Tracker> trackere = new ArrayList<>();
@@ -232,9 +257,13 @@ public final class Main {
         }
         ordine.sort(Comparator.comparing((Integer k) -> sosire.getOrDefault(k, Instant.MAX)));
 
+        if (server != null) {
+            List<String> texte = ordine.stream().map(k -> descrie(optiuni.get(k), trackere.get(k), sosire.get(k), setari)).toList();
+            server.publicaStare(Harta.mesaj("alegere", "Variantele până la " + dest + ", după ora de sosire.", texte, locatie.get(), arg.containsKey("de-la")));
+        }
         int ales = meniu.alege("Varianta", ordine, k -> descrie(optiuni.get(k), trackere.get(k), sosire.get(k), setari));
         Optiune o = optiuni.get(ales);
-        return new Plan(new Selectie(o.linie(), o.sens(), o.urcare(), Meniu.DIN_LOCATIE), trackere.get(ales), sursa);
+        return new Plan(new Selectie(o.linie(), o.sens(), o.urcare(), Meniu.DIN_LOCATIE), o.iCoborare(), trackere.get(ales), sursa);
     }
 
     private static String descrie(Optiune o, Tracker t, Instant sosire, Tracker.Setari setari) {
@@ -249,8 +278,12 @@ public final class Main {
     // ------------------------------------------------------------------ urmărirea
 
     /** Threadul "tracker" (aici, main): golește coada, recalculează cel mult o dată pe secundă. */
-    private static void urmareste(Selectie sel, Tracker tracker, Sursa sursa, Supplier<Locatie> locatie,
-                                  Config config, BlockingQueue<Object> coada) throws Exception {
+    private static void urmareste(Selectie sel, Integer iCoborare, Tracker tracker, Sursa sursa, Supplier<Locatie> locatie,
+                                  ServerLocatie server, boolean locatieFixa, Config config, BlockingQueue<Object> coada) throws Exception {
+        if (server != null) {
+            server.publicaTraseu(Harta.traseu(sel.linie().line(), sel.sens(), sel.sens().stops().indexOf(sel.statie()), iCoborare));
+        }
+        boolean placaOnline = false;
         System.out.printf("%nUrmăresc linia %s (route_id %d), sensul spre %s (%s), stația %s (id %d), mers pe jos %s.%n",
                 sel.linie().line(), sel.linie().routeId(), sel.sens().headsign(), sel.sens().tripId(),
                 sel.statie().name(), sel.statie().id(),
@@ -271,6 +304,7 @@ public final class Main {
             if (ev instanceof Vehicul v) {
                 if (v.routeId() == routeId) tracker.actualizeaza(v);  // în modul destinație vin și alte linii
             } else if (ev instanceof MqttBridge.PlacaOnline p) {
+                placaOnline = p.online();
                 System.out.println(p.online() ? "[placa] ONLINE" : "[placa] OFFLINE (fără conexiune)");
             } else if (ev instanceof MqttBridge.Urcat u) {
                 // retrimiterile aceleiași apăsări au același ts: confirmăm din nou, fără să anunțăm iar
@@ -293,6 +327,11 @@ public final class Main {
 
             if (locatie != null) tracker.seteazaMers(mersPanaLa(locatie.get(), sel.statie()));
             Rezultat r = tracker.evalueaza(sursa.feed().conectat());
+            if (server != null) {
+                // pe hartă apare și locația trimisă din browser când timpul de mers e fix (doar afișare)
+                Locatie eu = locatie != null ? locatie.get() : server.ultima();
+                server.publicaStare(Harta.urmarire(r, tracker.vehiculeHarta(), eu, locatieFixa, tracker.mersS(), placaOnline));
+            }
             // spre placă: la schimbarea stării / autobuzului și heartbeat la 10 s (watchdog-ul plăcii are 30 s)
             if (publicat == null || r.stare() != publicat.stare() || !Objects.equals(r.vehicul(), publicat.vehicul())
                     || acum - ultimaPublicare >= 10_000) {

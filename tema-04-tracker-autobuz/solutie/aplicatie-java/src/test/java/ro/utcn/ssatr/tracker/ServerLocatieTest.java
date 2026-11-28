@@ -2,6 +2,7 @@ package ro.utcn.ssatr.tracker;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -42,7 +43,18 @@ class ServerLocatieTest {
             HttpClient http = HttpClient.newHttpClient();
             URI uri = URI.create(s.adresa());
 
-            assertEquals(200, http.send(HttpRequest.newBuilder(uri).GET().build(), HttpResponse.BodyHandlers.discarding()).statusCode());
+            HttpResponse<String> pagina = http.send(HttpRequest.newBuilder(uri).GET().build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, pagina.statusCode());
+            assertTrue(pagina.body().contains("leaflet"));
+
+            assertEquals("null", http.send(HttpRequest.newBuilder(uri.resolve("/traseu")).GET().build(),
+                    HttpResponse.BodyHandlers.ofString()).body());
+            s.publicaTraseu("{\"linie\":\"25\"}");
+            s.publicaStare("{\"faza\":\"urmarire\"}");
+            assertEquals("{\"linie\":\"25\"}", http.send(HttpRequest.newBuilder(uri.resolve("/traseu")).GET().build(),
+                    HttpResponse.BodyHandlers.ofString()).body());
+            assertEquals("{\"faza\":\"urmarire\"}", http.send(HttpRequest.newBuilder(uri.resolve("/stare")).GET().build(),
+                    HttpResponse.BodyHandlers.ofString()).body());
             HttpResponse<Void> rau = http.send(HttpRequest.newBuilder(uri.resolve("/locatie"))
                     .POST(HttpRequest.BodyPublishers.ofString("{\"lat\":200}")).build(), HttpResponse.BodyHandlers.discarding());
             assertEquals(400, rau.statusCode());

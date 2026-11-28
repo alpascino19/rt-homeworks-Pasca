@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Călătoria mea – tracker autobuz</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+  :root {
+    --text: #1f2937; --muted: #6b7280; --line: #e5e7eb; --bg: #f9fafb;
+    --traseu: #2563eb; --urcare: #16a34a; --coborare: #9333ea; --urmarit: #ea580c;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }  /* altfel display: flex de mai jos l-ar anula */
+  html, body { height: 100%; margin: 0; }
+  body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text); display: flex; }
+  #harta { flex: 1; min-width: 0; }
+  aside { width: 360px; max-width: 100%; overflow-y: auto; border-left: 1px solid var(--line); background: var(--bg);
+          padding: 1rem 1.1rem 2rem; display: flex; flex-direction: column; gap: 1rem; }
+  @media (max-width: 760px) {
+    body { flex-direction: column; }
+    #harta { flex: none; height: 55vh; }
+    aside { width: auto; border-left: 0; border-top: 1px solid var(--line); }
+  }
+  h1 { font-size: 1.05rem; margin: 0; }
+  h1 small { display: block; font-weight: 400; color: var(--muted); font-size: .85rem; margin-top: .15rem; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 .4rem; }
+
+  .stare { border-radius: .75rem; padding: .9rem 1rem; color: #fff; background: #6b7280; }
+  .stare .titlu { font-size: 1.35rem; font-weight: 700; }
+  .stare .detaliu { opacity: .92; }
+  .stare[data-stare="DEPARTE"]     { background: #15803d; }
+  .stare[data-stare="PLEACA"]      { background: #b45309; }
+  .stare[data-stare="GRABESTE_TE"] { background: #b91c1c; }
+  .stare[data-stare="IN_STATIE"]   { background: #1d4ed8; }
+  .stare[data-stare="CONFIRMAT"]   { background: #7e22ce; }
+
+  dl { display: grid; grid-template-columns: auto 1fr; gap: .35rem .9rem; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .card { background: #fff; border: 1px solid var(--line); border-radius: .75rem; padding: .8rem .9rem; }
+  ol.optiuni { margin: 0; padding-left: 1.2rem; display: grid; gap: .45rem; }
+  .legenda { display: grid; gap: .3rem; font-size: .9rem; }
+  .legenda span::before { content: ""; display: inline-block; width: .8rem; height: .8rem; border-radius: 50%;
+                          margin-right: .45rem; vertical-align: -.1rem; background: var(--c); }
+  .mic { font-size: .85rem; color: var(--muted); }
+  .eroare { color: #b91c1c; }
+  form { display: flex; gap: .4rem; margin-top: .5rem; }
+  input { flex: 1; min-width: 0; font: inherit; padding: .35rem .5rem; border: 1px solid #cbd5e1; border-radius: .4rem; }
+  button { font: inherit; padding: .35rem .8rem; border: 1px solid #cbd5e1; border-radius: .4rem; background: #fff; cursor: pointer; }
+  button:hover { background: #f1f5f9; }
+  :focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+
+  .bus { background: #64748b; color: #fff; font: 700 12px/1 system-ui, sans-serif; padding: 4px 6px;
+         border-radius: 999px; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.35); white-space: nowrap;
+         transform: translate(-50%, -50%); display: inline-block; }
+  .bus.candidat { background: #1e3a8a; }
+  .bus.urmarit { background: var(--urmarit); font-size: 14px; padding: 5px 8px; }
+</style>
+</head>
+<body>
+<div id="harta" role="region" aria-label="Harta traseului și a autobuzelor"></div>
+<aside>
+  <h1 id="titlu">Călătoria mea<small id="subtitlu">Aștept aplicația…</small></h1>
+
+  <div class="stare" id="stare" role="status" aria-live="polite">
+    <div class="titlu" id="stareTitlu">Pornesc</div>
+    <div class="detaliu" id="stareDetaliu">Se încarcă datele.</div>
+  </div>
+
+  <div class="card" id="cifre" hidden>
+    <dl>
+      <dt>Autobuzul</dt><dd id="vVehicul">–</dd>
+      <dt>Ajunge în stație în</dt><dd id="vEta">–</dd>
+      <dt>Mai are de mers</dt><dd id="vRest">–</dd>
+      <dt>Tu ai nevoie de</dt><dd id="vMers">–</dd>
+      <dt>Pleacă în</dt><dd id="vRezerva">–</dd>
+    </dl>
+  </div>
+
+  <div class="card" id="cardOptiuni" hidden>
+    <h2>Variante</h2>
+    <ol class="optiuni" id="optiuni"></ol>
+    <p class="mic">Alegerea se face în consola aplicației.</p>
+  </div>
+
+  <div class="card">
+    <h2>Legendă</h2>
+    <div class="legenda">
+      <span style="--c: var(--urmarit)">autobuzul urmărit (cel de pe LED)</span>
+      <span style="--c: #1e3a8a">alte autobuze care vin spre stația ta</span>
+      <span style="--c: #64748b">autobuze care nu vin (alt sens, au trecut)</span>
+      <span style="--c: var(--urcare)">stația unde urci</span>
+      <span style="--c: var(--coborare)">stația unde cobori</span>
+      <span style="--c: #0ea5e9">tu</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Locația mea</h2>
+    <p class="mic" id="locStare">Aștept permisiunea pentru locație…</p>
+    <form id="manual">
+      <label for="coord" class="mic" style="align-self:center">lat, lon</label>
+      <input id="coord" placeholder="46.7712, 23.6236" required>
+      <button>Trimite</button>
+    </form>
+    <p class="mic" id="placa"></p>
+  </div>
+  <button id="centreaza" type="button">Centrează harta pe traseu</button>
+</aside>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const harta = L.map('harta', { zoomControl: true }).setView([46.7712, 23.6236], 13);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; contribuitorii <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+}).addTo(harta);
+
+// textul din API ajunge în tooltip-uri (HTML): îl escapăm
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const mmss = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+const min = s => { const m = Math.round(s / 60); return m < 1 ? 'sub 1 min' : m + ' min'; };
+
+const STARI = {
+  FARA_DATE:   ['Fără date',          'Niciun autobuz valid deocamdată (sau sursa e deconectată).'],
+  DEPARTE:     ['Ai timp',            'Mai ai peste 3 minute până trebuie să pleci.'],
+  PLEACA:      ['Pleacă acum',        'E momentul să pornești spre stație.'],
+  GRABESTE_TE: ['Grăbește-te',        'Autobuzul ajunge înaintea ta dacă mergi normal.'],
+  IN_STATIE:   ['Autobuzul e în stație', 'E la mai puțin de 80 m de stație.'],
+  CONFIRMAT:   ['Ai urcat',           'Confirmat de la placă. Drum bun!'],
+};
+
+let traseu = null, stratTraseu = null, limite = null;
+const autobuze = new Map();
+let euPunct = null, euCerc = null, euLinie = null;
+
+function deseneazaTraseu(t) {
+  stratTraseu = L.layerGroup().addTo(harta);
+  const linie = L.polyline(t.puncte, { color: getComputedStyle(document.documentElement).getPropertyValue('--traseu'), weight: 5, opacity: .8 })
+    .addTo(stratTraseu);
+  t.statii.forEach((s, i) => {
+    const special = i === t.urcare ? 'urcare' : i === t.coborare ? 'coborare' : null;
+    const m = L.circleMarker([s.lat, s.lon], special
+      ? { radius: 9, color: '#fff', weight: 3, fillColor: special === 'urcare' ? '#16a34a' : '#9333ea', fillOpacity: 1 }
+      : { radius: 4, color: '#2563eb', weight: 2, fillColor: '#fff', fillOpacity: 1 }).addTo(stratTraseu);
+    const text = (special === 'urcare' ? 'Urci: ' : special === 'coborare' ? 'Cobori: ' : '') + esc(s.nume);
+    m.bindTooltip(text, special ? { permanent: true, direction: 'top', offset: [0, -8] } : {});
+  });
+  limite = linie.getBounds();
+  harta.fitBounds(limite, { padding: [30, 30] });
+  $('subtitlu').textContent = `Linia ${t.linie} spre ${t.spre}`;
+}
+
+function actualizeazaAutobuze(lista) {
+  const vazute = new Set();
+  for (const v of lista) {
+    vazute.add(v.label);
+    const cls = 'bus' + (v.urmarit ? ' urmarit' : v.candidat ? ' candidat' : '');
+    const icon = L.divIcon({ className: '', html: `<span class="${cls}">${esc(v.label)}</span>`, iconSize: null });
+    let m = autobuze.get(v.label);
+    if (!m) { m = L.marker([v.lat, v.lon], { icon, keyboard: false }).addTo(harta); autobuze.set(v.label, m); }
+    else { m.setLatLng([v.lat, v.lon]); m.setIcon(icon); }
+    m.setZIndexOffset(v.urmarit ? 1000 : v.candidat ? 500 : 0);
+    m.bindTooltip(`Autobuzul ${esc(v.label)} · poziție de acum ${v.vechime_s} s`);
+  }
+  for (const [label, m] of autobuze) if (!vazute.has(label)) { m.remove(); autobuze.delete(label); }
+}
+
+function actualizeazaEu(eu) {
+  if (!eu) return;
+  const p = [eu.lat, eu.lon];
+  if (!euPunct) {
+    euCerc = L.circle(p, { radius: eu.precizie_m || 0, color: '#0ea5e9', weight: 1, fillOpacity: .12 }).addTo(harta);
+    euPunct = L.circleMarker(p, { radius: 7, color: '#fff', weight: 3, fillColor: '#0ea5e9', fillOpacity: 1 }).addTo(harta)
+      .bindTooltip('Tu');
+  } else { euPunct.setLatLng(p); euCerc.setLatLng(p).setRadius(eu.precizie_m || 0); }
+  if (traseu) {
+    const s = traseu.statii[traseu.urcare];
+    if (!euLinie) euLinie = L.polyline([p, [s.lat, s.lon]], { color: '#0ea5e9', weight: 3, dashArray: '6 8' }).addTo(harta);
+    else euLinie.setLatLngs([p, [s.lat, s.lon]]);
+  }
+}
+
+function afiseaza(st) {
+  const card = $('stare');
+  if (st.faza === 'urmarire') {
+    const [titlu, detaliu] = STARI[st.stare] || [st.stare, ''];
+    card.dataset.stare = st.stare;
+    $('stareTitlu').textContent = titlu;
+    $('stareDetaliu').textContent = detaliu;
+    $('cifre').hidden = false;
+    $('cardOptiuni').hidden = true;
+    $('vVehicul').textContent = st.vehicul ?? 'niciunul';
+    $('vEta').textContent = st.eta_s != null ? mmss(st.eta_s) : '–';
+    $('vRest').textContent = st.rest_m != null ? (st.rest_m >= 1000 ? (st.rest_m / 1000).toFixed(1) + ' km' : st.rest_m + ' m') : '–';
+    $('vMers').textContent = min(st.mers_s) + ' pe jos';
+    $('vRezerva').textContent = st.eta_s == null ? '–'
+      : (st.eta_s - st.mers_s > 0 ? mmss(st.eta_s - st.mers_s) : 'acum (ai întârziat)');
+    $('placa').textContent = st.placa_online ? 'Placa ESP32: online' : 'Placa ESP32: offline';
+    actualizeazaAutobuze(st.vehicule);
+  } else {
+    delete card.dataset.stare;
+    $('stareTitlu').textContent = st.faza === 'alegere' ? 'Alege varianta' : 'Pregătesc';
+    $('stareDetaliu').textContent = st.mesaj || '';
+    $('cifre').hidden = true;
+    const ol = $('optiuni');
+    ol.replaceChildren(...(st.optiuni || []).map(t => { const li = document.createElement('li'); li.textContent = t; return li; }));
+    $('cardOptiuni').hidden = !(st.optiuni && st.optiuni.length);
+  }
+  actualizeazaEu(st.eu);
+  if (st.locatie_fixa && !locatieFixa) {
+    locatieFixa = true;
+    $('locStare').textContent = 'Locație fixă, dată la pornirea aplicației (--de-la).';
+    $('locStare').classList.remove('eroare');
+    $('manual').hidden = true;
+  }
+}
+let locatieFixa = false;  // cu --de-la, locația din browser nu contează
+
+async function ciclu() {
+  try {
+    if (!traseu) {
+      const t = await (await fetch('/traseu')).json();
+      if (t) { traseu = t; deseneazaTraseu(t); }
+    }
+    afiseaza(await (await fetch('/stare')).json());
+  } catch (e) {
+    $('stareTitlu').textContent = 'Aplicația nu răspunde';
+    $('stareDetaliu').textContent = 'Porniți din nou aplicația Java și reîncărcați pagina.';
+    delete $('stare').dataset.stare;
+  }
+}
+ciclu();
+setInterval(ciclu, 2000);
+
+$('centreaza').addEventListener('click', () => { if (limite) harta.fitBounds(limite, { padding: [30, 30] }); });
+
+// ---- locația: trimisă aplicației la fiecare schimbare
+async function trimiteLocatia(lat, lon, acc) {
+  try {
+    const r = await fetch('/locatie', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ lat, lon, acc }) });
+    if (!r.ok) throw new Error('aplicația a refuzat locația');
+    $('locStare').textContent = `Trimisă la ${new Date().toLocaleTimeString()} (precizie ~${Math.round(acc)} m).`;
+    $('locStare').classList.remove('eroare');
+  } catch (e) {
+    $('locStare').textContent = 'Nu am putut trimite locația: ' + e.message;
+    $('locStare').classList.add('eroare');
+  }
+}
+if ('geolocation' in navigator) {
+  navigator.geolocation.watchPosition(
+    p => { if (!locatieFixa) trimiteLocatia(p.coords.latitude, p.coords.longitude, p.coords.accuracy); },
+    e => { if (locatieFixa) return;
+           $('locStare').textContent = 'Locația nu e disponibilă (' + e.message + '). Introduceți coordonatele.'; $('locStare').classList.add('eroare'); },
+    { enableHighAccuracy: true, maximumAge: 10000 });
+} else {
+  $('locStare').textContent = 'Browserul nu oferă locația. Introduceți coordonatele.';
+}
+$('manual').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const p = $('coord').value.split(',').map(Number);
+  if (p.length !== 2 || p.some(isNaN)) { $('locStare').textContent = 'Format: lat, lon (ex. 46.7712, 23.6236)'; $('locStare').classList.add('eroare'); return; }
+  trimiteLocatia(p[0], p[1], 0);
+});
+</script>
+</body>
+</html>
